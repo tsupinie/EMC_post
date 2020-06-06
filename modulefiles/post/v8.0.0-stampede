@@ -1,0 +1,72 @@
+#%Module######################################################################
+#############################################################
+## tsupinie@ou.edu
+## OU/CAPS
+## post v8.0.0 
+#############################################################
+proc ModulesHelp { } {
+puts stderr "Set environment variables for post"
+puts stderr "This module initializes the users environment"
+puts stderr "to build the post for Stampede.\n"
+}
+module-whatis "post"
+
+set ver v8.0.0
+
+# Loading Intel Compiler Suite
+module load intel/18.0.2
+module load impi/18.0.2
+
+module load netcdf/4.3.3.1
+#setenv NETCDF $TACC_NETCDF_DIR
+
+set LIBS_PATH /home1/01479/tsupine/local
+set IP_PATH $LIBS_PATH/ip_v3.0.0_4
+set G2_PATH $LIBS_PATH/g2_v3.1.0_4
+set G2TMPL_PATH $LIBS_PATH/g2tmpl_v1.5.0_4
+set GFSIO_PATH $LIBS_PATH/gfsio_4
+set W3EMC_PATH $LIBS_PATH/w3emc_v2.2.0_4
+
+set FV3_LIBS_PATH /home1/01479/tsupine/fv3-sar-devel/NCEPlibs
+set CRTM_PATH /work/00316/tg455894/software/CRTM-2.3.0_ifort
+
+# Set include paths for external dependencies
+setenv SFCIO_INC4 $FV3_LIBS_PATH/include
+setenv NEMSIO_INC $FV3_LIBS_PATH/include
+setenv SIGIO_INC4 $FV3_LIBS_PATH/include
+
+setenv IP_INC4 $IP_PATH/include
+setenv G2_INC4 $G2_PATH/include
+setenv G2TMPL_INC $G2TMPL_PATH/include
+setenv GFSIO_INC4 $GFSIO_PATH/include
+setenv W3EMC_INC4 $W3EMC_PATH/include
+
+setenv CRTM_INC $CRTM_PATH/include
+
+# Set library paths for external dependencies
+setenv Z_LIB /usr/lib64/libz.so
+setenv PNG_LIB /usr/lib64/libpng.so
+setenv JASPER_LIB /usr/lib64/libjasper.so
+
+setenv SFCIO_LIB4 $FV3_LIBS_PATH/lib/libsfcio_v1.0.0_4.a
+setenv NEMSIO_LIB $FV3_LIBS_PATH/lib/libnemsio_d.a
+setenv SIGIO_LIB4 $FV3_LIBS_PATH/lib/libsigio_v2.0.1_4.a
+setenv W3NCO_LIB4 $LIBS_PATH/lib/libw3nco_4.a
+setenv SP_LIB4 $FV3_LIBS_PATH/lib/libsp_v2.0.2_d.a
+setenv BACIO_LIB4 $FV3_LIBS_PATH/lib/libbacio_4.a
+
+setenv IP_LIB4 $IP_PATH/lib/libip.a
+setenv G2_LIB4 $G2_PATH/lib/libg2_v3.1.0_4.a
+setenv G2TMPL_LIB $G2TMPL_PATH/lib/libg2tmpl_v1.5.0.a
+setenv GFSIO_LIB4 $GFSIO_PATH/lib/libgfsio_4.a
+setenv W3EMC_LIB4 $W3EMC_PATH/lib/libw3emc.a
+
+setenv CRTM_LIB $CRTM_PATH/lib/libcrtm.a
+
+setenv WRFIO_LIB "/home1/01479/tsupine/se-wrf-upstream/external/io_netcdf/libwrfio_nf.a"
+setenv myFC mpiifort
+setenv OPENMP "-qopenmp"
+setenv myFCFLAGS "-O3 -convert big_endian -traceback -g -fp-model source -qopenmp"
+#setenv myFCFLAGS "-O0 -check all -check noarg_temp_created -fp-stack-check -fstack-protector-all -fpe3 -convert big_endian -traceback -g -fp-model source -qopenmp"
+setenv myCPP /lib/cpp 
+setenv myCPPFLAGS "-P"

@@ -938,8 +938,8 @@
             pint(i,j,l)   = pint(i,j,l-1) + dpres(i,j,l-1)
           enddo
         enddo
-        if (me == 0) print*,'sample model pint,pmid' ,ii,jj,l &
-          ,pint(ii,jj,l),pmid(ii,jj,l)
+!       if (me == 0) print*,'sample model pint,pmid' ,ii,jj,l &
+!         ,pint(ii,jj,l),pmid(ii,jj,l)
       end do
 
 !      do l=lm,1,-1
@@ -2893,6 +2893,7 @@
         iret = nf90_get_att(ncid,varid,"_FillValue",fill_value)
         if (iret /= 0) fill_value = spval_netcdf
         !print*,stat,varname,varid
+!       print*, 'TAS:', trim(varname)
         iret = nf90_get_var(ncid,varid,dummy2)
         !iret = nf90_get_var(ncid,varid,dummy2,start=(/1,1,ifhr/), &
         !     count=(/im,jm,1/))

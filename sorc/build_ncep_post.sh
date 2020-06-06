@@ -26,6 +26,8 @@ elif [ $mac = f  ] ; then                       # For Jet
  machine=jet
  . /etc/profile
  . /etc/profile.d/modules.sh
+elif [ $mac2 = lo ] ; then
+ machine=stampede
 elif [ $mac = v -o $mac = m  ] ; then            # For Dell
  machine=wcoss_dell_p3
  . $MODULESHOME/init/bash
@@ -52,6 +54,10 @@ moduledir=`dirname $(readlink -f ../modulefiles/post)`
 module use ${moduledir}
 module load post/v8.0.0-${machine}
 module list
+
+if [ $machine = stampede ] ; then
+    export NETCDF=$TACC_NETCDF_DIR
+fi
 
 cd ncep_post.fd
 

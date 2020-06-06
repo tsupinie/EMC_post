@@ -1,0 +1,8 @@
+*.o
+*.a
+sorc/ncep_post.fd/*.f90
+sorc/ncep_post.fd/ncep_post
+sorc/ncep_post.fd/include/
+bin/
+exec/
+parm/*.log.*

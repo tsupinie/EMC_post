@@ -121,49 +121,49 @@ SUBROUTINE CALRAD_WCLOUD
   !      integer,parameter::  n_clouds = 4 
   integer,parameter::  n_aerosols = 0
   ! Add your sensors here
-  integer(i_kind),parameter:: n_sensors=21
+  integer(i_kind),parameter:: n_sensors=2!21
   character(len=20),parameter,dimension(1:n_sensors):: sensorlist= &
-      (/'imgr_g15            ', &
-        'imgr_g13            ', &
-        'imgr_g12            ', &
-        'imgr_g11            ', &
-        'amsre_aqua          ', &
-        'tmi_trmm            ', &
-        'ssmi_f13            ', &
-        'ssmi_f14            ', &
-        'ssmi_f15            ', &
-        'ssmis_f16           ', &
-        'ssmis_f17           ', &
-        'ssmis_f18           ', &
-        'ssmis_f19           ', &
-        'ssmis_f20           ', &
-        'seviri_m10          ', &
-        'imgr_mt2            ', &
-        'imgr_mt1r           ', &
-        'imgr_insat3d        ', &
-        'abi_gr              ', &
+      (/&!'imgr_g15            ', &
+        !'imgr_g13            ', &
+        !'imgr_g12            ', &
+        !'imgr_g11            ', &
+        !'amsre_aqua          ', &
+        !'tmi_trmm            ', &
+        !'ssmi_f13            ', &
+        !'ssmi_f14            ', &
+        !'ssmi_f15            ', &
+        !'ssmis_f16           ', &
+        !'ssmis_f17           ', &
+        !'ssmis_f18           ', &
+        !'ssmis_f19           ', &
+        !'ssmis_f20           ', &
+        !'seviri_m10          ', &
+        !'imgr_mt2            ', &
+        !'imgr_mt1r           ', &
+        !'imgr_insat3d        ', &
+        !'abi_gr              ', &
         'abi_g16             ', &
         'abi_g17             '/)
   character(len=12),parameter,dimension(1:n_sensors):: obslist=  &
-      (/'goes_img    ', &
-        'goes_img    ', &
-        'goes_img    ', &
-        'goes_img    ', &
-        'amsre       ', &
-        'tmi         ', &
-        'ssmi        ', &
-        'ssmi        ', &
-        'ssmi        ', &
-        'ssmis       ', &
-        'ssmis       ', &
-        'ssmis       ', &
-        'ssmis       ', &
-        'ssmis       ', &
-        'seviri      ', &
-        'imgr_mt2    ', &
-        'imgr_mt1r   ', &
-        'imgr_insat3d', &
-        'abi         ', &
+      (/&!'goes_img    ', &
+        !'goes_img    ', &
+        !'goes_img    ', &
+        !'goes_img    ', &
+        !'amsre       ', &
+        !'tmi         ', &
+        !'ssmi        ', &
+        !'ssmi        ', &
+        !'ssmi        ', &
+        !'ssmis       ', &
+        !'ssmis       ', &
+        !'ssmis       ', &
+        !'ssmis       ', &
+        !'ssmis       ', &
+        !'seviri      ', &
+        !'imgr_mt2    ', &
+        !'imgr_mt1r   ', &
+        !'imgr_insat3d', &
+        !'abi         ', &
         'abi         ', &
         'abi         '/)
   character(len=20),dimension(1:n_sensors):: sensorlist_local
@@ -2582,6 +2582,8 @@ REAL FUNCTION EFFR(pmid,t,q,qqw,qqi,qqr,f_rimef, nlice, nrain, &
 
      CASE("G")
 
+            rg = qqg * rho
+            
             if(qqg .ge. min_qg) then
 
                 no_min  = nthom_gon_max
