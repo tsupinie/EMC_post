@@ -66,7 +66,7 @@ setenv CRTM_LIB $CRTM_PATH/lib/libcrtm.a
 setenv WRFIO_LIB "/home1/01479/tsupine/se-wrf-upstream/external/io_netcdf/libwrfio_nf.a"
 setenv myFC mpiifort
 setenv OPENMP "-qopenmp"
-setenv myFCFLAGS "-O3 -convert big_endian -traceback -g -fp-model source -qopenmp"
+setenv myFCFLAGS "-O2 -convert big_endian -traceback -g -fp-model source -qopenmp"
 #setenv myFCFLAGS "-O0 -check all -check noarg_temp_created -fp-stack-check -fstack-protector-all -fpe3 -convert big_endian -traceback -g -fp-model source -qopenmp"
 setenv myCPP /lib/cpp 
 setenv myCPPFLAGS "-P"
