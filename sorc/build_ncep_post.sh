@@ -33,6 +33,8 @@ if [ "$#" -eq 0 ]; then
       machine=theia
    elif [ $mac = f  ] ; then                        # For Jet 
       machine=jet
+   elif [ $mac2 = lo ] ; then
+      machine=stampede
    elif [ $mac = v -o $mac = m  ] ; then            # For Dell
       machine=wcoss_dell_p3
    elif [ $mac = t -o $mac = e -o $mac = g ] ; then # For WCOSS

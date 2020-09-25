@@ -144,7 +144,7 @@ SUBROUTINE CALRAD_WCLOUD
         !'imgr_insat3d        ', &
         !'abi_gr              ', &
         'abi_g16             ', &
-        'abi_g17             ', &
+        'abi_g17             '  &
         !'ahi_himawari8       '
         /)
   character(len=13),parameter,dimension(1:n_sensors):: obslist=  &
@@ -168,7 +168,7 @@ SUBROUTINE CALRAD_WCLOUD
        !'imgr_insat3d ', &
        !'abi          ', &
         'abi          ', &
-        'abi          ', &
+        'abi          '  &
        !'ahi_himawari8'
        /)
   character(len=20),dimension(1:n_sensors):: sensorlist_local
@@ -2183,7 +2183,7 @@ REAL FUNCTION EFFR(pmid,t,q,qqw,qqi,qqr,f_rimef, nlice, nrain, &
 !       JASON OTKIN AND WILLIAM LEWIS
 !       09 DECEMBER 2014
 
-  use params_mod, only: pi, rd, d608, rg
+  use params_mod, only: pi, rd, d608
 
         implicit none
 
@@ -2195,6 +2195,7 @@ REAL FUNCTION EFFR(pmid,t,q,qqw,qqi,qqr,f_rimef, nlice, nrain, &
         real :: rho, ncc, rhox
         real :: n0_s, n0_r, n0_g
         real :: lambdar, lambdas, lambdag
+        real :: rg
 
 !-------------------------------------------------------------------------------
 !  GAMMA FUNCTION & RELATED VARIABLES
