@@ -108,7 +108,7 @@
                          ALWINC, ALWTOAC, SWDDNI, SWDDIF, SWDNBC, SWDDNIC,    &
                          SWDDIFC, SWUPBC, LWDNBC, LWUPBC, SWUPT,              &
                          TAOD5502D, AERSSA2D, AERASY2D, MEAN_FRP, LWP, IWP,   &
-                         TAOD5502D, AERSSA2D, AERASY2D,                       &
+                         AERASY2D, AVGCPRATE,                                 &
                          DUSTCB,SSCB,BCCB,OCCB,SULFCB,DUSTPM,SSPM
       use masks,    only: LMH, HTM
       use params_mod, only: TFRZ, D00, H99999, QCLDMIN, SMALL, D608, H1, ROG, &
@@ -117,7 +117,7 @@
       use ctlblk_mod, only: JSTA, JEND, SPVAL, MODELNAME, GRIB, CFLD,DATAPD,  &
                             FLD_INFO, AVRAIN, THEAT, IFHR, IFMIN, AVCNVC,     &
                             TCLOD, ARDSW, TRDSW, ARDLW, NBIN_DU, TRDLW, IM,   &
-                            NBIN_SS, NBIN_OC, NBIN_BC, NBIN_SU,               &
+                            NBIN_SS, NBIN_OC, NBIN_BC, NBIN_SU, DTQ2,         &
                             JM, LM, gocart_on, me
       use rqstfld_mod, only: IGET, ID, LVLS, IAVBLFLD
       use gridspec_mod, only: dyval, gridtype
@@ -146,8 +146,10 @@
                 vertvis, tx, tv, pol, esx, es, e, zsf, zcld, frac
       integer   nfog, nfogn(7),npblcld,nlifr, k1, k2, ll, ii, ib, n, jj,     &
                 NUMR, NUMPTS
-      real,dimension(lm)       :: cldfra
-      real                     :: ceiling_thresh_cldfra, cldfra_max, zceil
+      real,dimension(lm)       :: cldfra, cfr_layer_sum
+      real                     :: ceiling_thresh_cldfra, cldfra_max, &
+                                  zceil, zceil1, zceil2, previous_sum, &
+                                  ceil_min, ceil_neighbor
       real,dimension(im,jm)    :: ceil
 !     B ZHOU: For aviation:
       REAL, dimension(im,jsta:jend) :: TCLD, CEILING
@@ -967,8 +969,9 @@
         endif
       ENDIF
 !
-nmmb_clds1: IF ((MODELNAME=='NMM' .AND. GRIDTYPE=='B') .OR. &
+      IF ((MODELNAME=='NMM' .AND. GRIDTYPE=='B') .OR. &
              MODELNAME=='FV3R') THEN
+!nmmb_clds1
 !   
 !-- Initialize low, middle, high, and total cloud cover; 
 !   also a method for cloud ceiling height
@@ -1024,9 +1027,64 @@ nmmb_clds1: IF ((MODELNAME=='NMM' .AND. GRIDTYPE=='B') .OR. &
             ENDDO  ! I
           ENDDO    ! J
         ENDDO      ! L
-      ENDIF  nmmb_clds1
+!end nmmb_clds1
+      ELSEIF (MODELNAME=='GFS') THEN
+!Initialize for GLOBAL FV3 which has cluod fraction in range from
+!0.0 to 1.0
+!
+!-- Initialize low, middle, high, and total cloud cover;
+!   also a method for cloud ceiling height
+!
+        DO J=JSTA,JEND
+          DO I=1,IM
+            CFRACL(I,J)=0.
+            CFRACM(I,J)=0.
+            CFRACH(I,J)=0.
+            TCLD(I,J)=0.
+          ENDDO
+        ENDDO
+        DO L=LM,1,-1
+          DO J=JSTA,JEND
+            DO I=1,IM
+              FRAC=CFR(I,J,L) !- 3D cloud fraction at model layers
+              PCLDBASE=PMID(I,J,L)    !-- Using PCLDBASE variable for convenience
+              IF (PCLDBASE>=PTOP_LOW) THEN
+                CFRACL(I,J)=MAX(CFRACL(I,J),FRAC)
+              ELSE IF (PCLDBASE>=PTOP_MID) THEN
+                CFRACM(I,J)=MAX(CFRACM(I,J),FRAC)
+              ELSE
+                CFRACH(I,J)=MAX(CFRACH(I,J),FRAC)
+              ENDIF
+              TCLD(I,J)=MAX(TCLD(I,J),FRAC)
+            ENDDO  ! I
+          ENDDO    ! J
+        ENDDO      ! L
+      ENDIF  
 !
 !***  BLOCK 2.  2-D CLOUD FIELDS.
+
+! GSD maximum cloud fraction in (PBL + 1 km) (J. Kenyon, 8 Aug 2019)
+      IF (IGET(799).GT.0) THEN
+!$omp parallel do private(i,j)
+        DO J=JSTA,JEND
+          DO I=1,IM
+             GRID1(I,J)=0.0
+             DO K = 1,LM
+               IF (ZMID(I,J,LM-K+1) .LE. PBLH(I,J)+1000.0) THEN
+                 GRID1(I,J)=max(GRID1(I,J),CFR(I,J,LM-K+1)*100.0)
+               ENDIF
+             ENDDO
+          ENDDO
+        ENDDO
+        if(grib=="grib1" )then
+         ID(1:25)=0
+         CALL GRIBIT(IGET(799),LVLS(1,IGET(799)),GRID1,IM,JM)
+        else if(grib=="grib2" )then
+          cfld=cfld+1
+          fld_info(cfld)%ifld=IAVBLFLD(IGET(799))
+          datapd(1:im,1:jend-jsta+1,cfld)=GRID1(1:im,jsta:jend)
+        endif
+      ENDIF
 !
 !     LOW CLOUD FRACTION.
       IF (IGET(037) > 0) THEN
@@ -1274,18 +1332,8 @@ nmmb_clds1: IF ((MODELNAME=='NMM' .AND. GRIDTYPE=='B') .OR. &
 !     TOTAL CLOUD FRACTION (INSTANTANEOUS).
       IF ((IGET(161) > 0) .OR. (IGET(260) > 0)) THEN
 !        GRID1=SPVAL
-         IF(MODELNAME == 'GFS')THEN
-         IF (IGET(161) > 0) THEN
+         IF(MODELNAME=='NCAR' .OR. MODELNAME=='RAPR')THEN
 !$omp parallel do private(i,j)
-           DO J=JSTA,JEND
-             DO I=1,IM
-               GRID1(i,j)  = SPVAL
-               EGRID1(i,j) = SPVAL
-               TCLD(i,j)   = SPVAL
-             ENDDO
-           ENDDO
-         ENDIF
-         ELSE IF(MODELNAME .EQ. 'NCAR' .OR. MODELNAME == 'RAPR')THEN
            DO J=JSTA,JEND
              DO I=1,IM
                GRID1(i,j)  = SPVAL
@@ -1296,13 +1344,15 @@ nmmb_clds1: IF ((MODELNAME=='NMM' .AND. GRIDTYPE=='B') .OR. &
              ENDDO
            ENDDO
 
-         ELSE IF (MODELNAME.EQ.'NMM'.OR.MODELNAME.EQ.'FV3R')THEN
+         ELSE IF (MODELNAME=='NMM'.OR.MODELNAME=='FV3R' &
+           .OR. MODELNAME=='GFS')THEN
            DO J=JSTA,JEND
              DO I=1,IM
 !               EGRID1(I,J)=AMAX1(CFRACL(I,J),
 !     1                 AMAX1(CFRACM(I,J),CFRACH(I,J)))
 !            EGRID1(I,J)=1.-(1.-CFRACL(I,J))*(1.-CFRACM(I,J))*      &  
 !     &                 (1.-CFRACH(I,J))
+            GRID1(i,j)=SPVAL
             EGRID1(I,J)=TCLD(I,J)
           ENDDO
           ENDDO
@@ -1513,7 +1563,7 @@ nmmb_clds1: IF ((MODELNAME=='NMM' .AND. GRIDTYPE=='B') .OR. &
       IF((IGET(148).GT.0) .OR. (IGET(149).GT.0) .OR.              &
           (IGET(168).GT.0) .OR. (IGET(178).GT.0) .OR.             &
           (IGET(179).GT.0) .OR. (IGET(194).GT.0) .OR.             &
-          (IGET(408).GT.0) .OR. (IGET(798).GT.0) .OR.             & 
+          (IGET(408).GT.0) .OR.                                   & 
           (IGET(409).GT.0) .OR. (IGET(406).GT.0) .OR.             &
           (IGET(195).GT.0) .OR. (IGET(260).GT.0) .OR.             &
           (IGET(275).GT.0))  THEN
@@ -1744,7 +1794,7 @@ snow_check:   IF (QQS(I,J,L)>=QCLDmin) THEN
 !    "GSD CLOUD BOTTOM HEIGHT".  An alternative (experimental)
 !    GSD cloud ceiling algorithm is offered further below.
 
-      IF (IGET(408).GT.0 .OR. IGET(798).GT.0) THEN
+      IF (IGET(408).GT.0) THEN
 !- imported from RUC post
 !  -- constants for effect of snow on ceiling
 !      Also found in calvis.f
@@ -2006,26 +2056,9 @@ snow_check:   IF (QQS(I,J,L)>=QCLDmin) THEN
                  datapd(1:im,1:jend-jsta+1,cfld)=GRID1(1:im,jsta:jend)
                endif
           ENDIF
-!   GSD CLOUD BOTTOM PRESSURE
-          IF (IGET(798).GT.0) THEN
-!$omp parallel do private(i,j)
-            DO J=JSTA,JEND
-              DO I=1,IM
-                GRID1(I,J) = CLDP(I,J)
-              ENDDO
-            ENDDO
-               if(grib=="grib1" )then
-               ID(1:25)=0
-               CALL GRIBIT(IGET(798),LVLS(1,IGET(798)),GRID1,IM,JM) 
-               else if(grib=="grib2" )then
-                 cfld=cfld+1
-                 fld_info(cfld)%ifld=IAVBLFLD(IGET(798))
-                 datapd(1:im,1:jend-jsta+1,cfld)=GRID1(1:im,jsta:jend)
-               endif
-          ENDIF
       ENDIF   !End of GSD algorithm
 
-! BEGIN EXPERIMENTAL GSD CEILING DIAGNOSTIC...
+! BEGIN EXPERIMENTAL GSD CEILING DIAGNOSTICS...
 ! J. Kenyon, 4 Feb 2017:  this approach uses model-state cloud fractions
       IF (IGET(487).GT.0) THEN
 !       set some constants for ceiling adjustment in snow (retained from legacy algorithm, also in calvis.f)
@@ -2043,7 +2076,7 @@ snow_check:   IF (QQS(I,J,L)>=QCLDmin) THEN
               cldfra_max = 0.
               do k=1,lm
                 LL=LM-k+1
-                cldfra(k) = cfr_raw(i,j,ll)
+                cldfra(k) = cfr(i,j,ll)
                 cldfra_max = max(cldfra_max,cldfra(k))              ! determine the column-maximum cloud fraction
               end do
               if (cldfra_max .lt. ceiling_thresh_cldfra) go to 4701 ! threshold cloud fraction not found in column, so skip to end
@@ -2126,7 +2159,204 @@ snow_check:   IF (QQS(I,J,L)>=QCLDmin) THEN
           datapd(1:im,1:jend-jsta+1,cfld)=GRID1(1:im,jsta:jend)
         endif
       ENDIF ! end of parameter-487 conditional code
-! END OF EXPERIMENTAL GSD CEILING DIAGNOSTIC
+! END OF EXPERIMENTAL GSD CEILING DIAGNOSTIC 1
+
+! BEGIN EXPERIMENTAL GSD CEILING DIAGNOSTIC 2
+! -- J. Kenyon, 12 Sep 2019
+!    Parameter 711 has been developed to eventually replace the GSD
+!    legacy ceiling diagnostic, and can be regarded as a ceiling.
+!    However, for RAPv5/HRRRv4, paramater 711 will be supplied as
+!    the GSD cloud-base height, and parameter 798 will be the
+!    corresponding cloud-base pressure. (J. Kenyon, 4 Nov 2019)
+
+        IF ((IGET(711).GT.0) .OR. (IGET(798).GT.0)) THEN
+          ! set minimum cloud fraction to represent a ceiling
+          ceiling_thresh_cldfra = 0.4
+          ! set some constants for ceiling adjustment in snow (retained from legacy algorithm, also in calvis.f)
+          rhoice = 970.
+          coeffp = 10.36
+          exponfp = 1.
+          const1 = 3.912
+
+          DO J=JSTA,JEND
+            DO I=1,IM
+                ceil(I,J) = SPVAL
+                zceil     = SPVAL
+                zceil1    = SPVAL
+                zceil2    = SPVAL
+                CLDZ(I,J) = SPVAL
+                CLDP(I,J) = SPVAL
+
+                !-- Retrieve all cloud fractions in column
+                do k=1,lm
+                  cldfra(k) = cfr(i,j,LM-k+1)
+                end do
+
+                !-- Look for surface-based clouds beneath
+                ! less-cloudy layers.  We will regard these
+                ! instances as surface-based fog, too thin
+                ! to impose a ceiling.
+                if (cldfra(1) .ge. ceiling_thresh_cldfra) then !  possible thin fog; look higher
+                  do k=2,3
+                    if (cldfra(k) .lt. 0.6) then ! confirmed thin fog, extending just below k
+                      cldfra(1:k-1) = 0.0 ! clear fog up to k-1
+                    end if
+                  end do
+                end if
+
+                !-- Search 1:  no summation principle
+                do k=2,lm
+                  if (cldfra(k) .ge. ceiling_thresh_cldfra) then ! found ceiling
+                     if (k .le. 4) then ! within 4 levels of surface, no interpolation
+                       zceil1 = zmid(i,j,lm-k+1)
+                     else
+                       zceil1 = zmid(i,j,lm-k+1) + (ceiling_thresh_cldfra-cldfra(k)) &
+                               * (zmid(i,j,lm-k+2)-zmid(i,j,lm-k+1))                 &
+                               / (cldfra(k-1) - cldfra(k))
+                     end if
+                     exit
+                  end if
+                end do
+
+                !-- Search 2:  apply summation principle; see FAA order
+                ! JO 7900.5B, Ch. 11 (Sky Condition), available at:
+                ! https://www.faa.gov/documentLibrary/media/Order/7900_5D.pdf
+                !
+                ! and also:
+                ! http://glossary.ametsoc.org/wiki/Summation_principle
+                !
+                ! J. Kenyon, 15 Aug 2019
+
+                ! We seek to identify distinct cloud layers, which is
+                ! not to be confused with model layers that contain
+                ! clouds.  For instance, a single layer of clouds may be
+                ! represented across several adjoining model layers.
+
+                cfr_layer_sum(1:lm)=0.0 ! initialize a column of zeros
+                previous_sum=0.0
+                do k=4,lm-1
+                  if ( (cldfra(k) .ge. 0.05 )       .and. & ! criterion 1
+                       (cldfra(k) .gt. cldfra(k-1)) .and. & ! criterion 2
+                       (cldfra(k) .ge. cldfra(k+1)) )     & ! criterion 3
+                     ! Explanation, by criterion:
+                     !   (1) a reasonably large cloud fraction exists,
+                     !   (2) the cloud fraction is .GT. the adjoining cloud fraction below,
+                     !   (3) the cloud fraction is .GE. the adjoining cloud fraction above (note that .GE.
+                     !        is used here, in case k is the lowest of several overcast model layers)
+                     then
+                     ! If all criteria satisfied, then we will consider the local-maximum cldfra(k) as
+                     ! representative of the cloud layer.  We then proceed to add this fraction to
+                     ! the accumulated fraction(s) from any lower layer(s).
+                        cfr_layer_sum(k) = min(1.0, previous_sum + cldfra(k))
+                        previous_sum = min(1.0, cfr_layer_sum(k))
+
+                        if (cfr_layer_sum(k) .ge. ceiling_thresh_cldfra) then
+                           zceil2 = zmid(i,j,lm-k+1) + (ceiling_thresh_cldfra-cfr_layer_sum(k)) &
+                                   * (zmid(i,j,lm-k+2)-zmid(i,j,lm-k+1))                &
+                                   / (cfr_layer_sum(k-1) - cfr_layer_sum(k))
+                           exit ! break from DO K loop
+                        end if
+
+                  end if
+                end do
+                !-- end of search 2
+
+                zceil = min(zceil1,zceil2) ! choose lower of zceil1 and zceil2
+
+                !-- Search for "indefinite ceiling" (vertical visibility) conditions:  consider
+                ! lowering of apparent ceiling due to falling snow (retained from legacy
+                ! diagnostic); this is extracted from calvis.f (visibility diagnostic)
+                if (QQS(i,j,LM).gt.1.e-10) then
+                  TV=T(I,J,lm)*(H1+D608*Q(I,J,lm))
+                  RHOAIR=PMID(I,J,lm)/(RD*TV)
+                  vovermd = (1.+Q(i,j,LM))/rhoair + QQS(i,j,LM)/rhoice
+                  concfp = QQS(i,j,LM)/vovermd*1000.
+                  betav = coeffp*concfp**exponfp + 1.e-10
+                  vertvis = 1000.*min(90., const1/betav)
+                  if (vertvis .lt. zceil-FIS(I,J)*GI ) then ! if vertvis is more restictive than zceil found above; set zceil to vertvis
+                    ! note that FIS is geopotential of the surface (ground), and GI is 1/g
+                    zceil = FIS(I,J)*GI + vertvis
+                  end if
+                end if
+
+                ceil(I,J) = zceil
+            ENDDO      ! i loop
+          ENDDO        ! j loop
+
+          !-- In order to obtain a somewhat smoothed field of ceiling,
+          ! we now conduct a horizontal search of neighboring grid
+          ! boxes and consider each ceiling in AGL.  The lowest
+          ! neighboring AGL value will then be assigned locally.
+          !
+          ! In general, the diagnosis of low-AGL ceilings atop hills/peaks
+          ! will also tend to be "spread" onto the adjacent valleys.
+          ! However, a neighborhood search using heights in ASL is more
+          ! problematic, since low ceilings in valleys will tend to be
+          ! "spread" onto the ajacent hills/peaks as very low ceilings
+          ! (fog). In actuality, these hills/peaks may exist above the cloud
+          ! layer.
+          numr = 1
+          DO J=JSTA,JEND
+            DO I=1,IM
+              ceil_min = max( ceil(I,J)-FIS(I,J)*GI , 5.0) ! ceil_min in AGL
+              do jc = max(JSTA,J-numr),min(JEND,J+numr)
+              do ic = max(1,I-numr),min(IM,I+numr)
+                ceil_neighbor = max( ceil(ic,jc)-FIS(ic,jc)*GI , 5.0) !  ceil_neighbor in AGL
+                ceil_min = min( ceil_min, ceil_neighbor )
+              enddo
+              enddo
+              CLDZ(I,J) = ceil_min + FIS(I,J)*GI ! convert back to ASL and store
+              CLDZ(I,J) = max(min(CLDZ(I,J), 20000.0),0.0) !set bounds
+              ! find pressure at CLDZ
+              do k=1,lm-2
+                if ( zmid(i,j,lm-k+1) .ge. CLDZ(i,j) ) then
+                   CLDP(I,J) = pmid(i,j,lm-k+2) + (CLDZ(i,j)-zmid(i,j,lm-k+2)) &
+                             *(pmid(i,j,lm-k+1)-pmid(i,j,lm-k+2) )             &
+                             /(zmid(i,j,lm-k+1)-zmid(i,j,lm-k+2) )
+                   exit
+                endif
+              enddo
+            ENDDO
+          ENDDO
+
+          ! GSD CLOUD BOTTOM HEIGHT
+          IF (IGET(711).GT.0) THEN
+!$omp parallel do private(i,j)
+            DO J=JSTA,JEND
+              DO I=1,IM
+                GRID1(I,J) = CLDZ(I,J)
+              ENDDO
+            ENDDO
+               if(grib=="grib1" )then
+               ID(1:25)=0
+               CALL GRIBIT(IGET(711),LVLS(1,IGET(711)),GRID1,IM,JM)
+               else if(grib=="grib2" )then
+                 cfld=cfld+1
+                 fld_info(cfld)%ifld=IAVBLFLD(IGET(711))
+                 datapd(1:im,1:jend-jsta+1,cfld)=GRID1(1:im,jsta:jend)
+               endif
+          ENDIF
+
+          ! GSD CLOUD BOTTOM PRESSURE
+          IF (IGET(798).GT.0) THEN
+!$omp parallel do private(i,j)
+            DO J=JSTA,JEND
+              DO I=1,IM
+                GRID1(I,J) = CLDP(I,J)
+              ENDDO
+            ENDDO
+               if(grib=="grib1" )then
+               ID(1:25)=0
+               CALL GRIBIT(IGET(798),LVLS(1,IGET(798)),GRID1,IM,JM)
+               else if(grib=="grib2" )then
+                 cfld=cfld+1
+                 fld_info(cfld)%ifld=IAVBLFLD(IGET(798))
+                 datapd(1:im,1:jend-jsta+1,cfld)=GRID1(1:im,jsta:jend)
+               endif
+          ENDIF
+      ENDIF    ! end of parameter-711 and -798 conditional code
+
+! END OF EXPERIMENTAL GSD CEILING DIAGNOSTICS
  
 !    B. ZHOU: CEILING
         IF (IGET(260).GT.0) THEN
@@ -5477,11 +5707,205 @@ snow_check:   IF (QQS(I,J,L)>=QCLDmin) THEN
 !      IF (IGET(678).GT.0) call wrt_aero_diag(678,nbin_su,suwt)
 !      print *,'aft wrt disg suwt'
       endif          ! if gocart_on
+
+! CB for WAFS
+      if(IGET(473)>0 .or. IGET(474)>0 .or. IGET(475)>0) then
+         ! CB cover is derived from CPRAT (same as #272 in SURFCE.f) 
+         EGRID1 = SPVAL
+         DO J=JSTA,JEND
+            DO I=1,IM
+               if(AVGCPRATE(I,J) /= SPVAL) then
+                  EGRID1(I,J) = AVGCPRATE(I,J)*(1000./DTQ2)
+               end if
+            END DO
+         END DO
+         call cb_cover(EGRID1)
+
+         ! CB base(height):derived from convective cloud base (pressure, same as #188 in CLDRAD.f)
+         ! CB top(height): derived from convective cloud top (pressure, same as #189 in CLDRAD.f)
+         EGRID2 = SPVAL
+         EGRID3 = SPVAL
+         IF(MODELNAME == 'GFS' .OR. MODELNAME == 'FV3R') then
+            DO J=JSTA,JEND
+               DO I=1,IM
+                  EGRID2(I,J) = PBOT(I,J)
+                  EGRID3(I,J) = PTOP(I,J)
+               END DO
+            END DO
+         END IF
+
+         ! Derive CB base and top, relationship among CB fields
+         DO J=JSTA,JEND
+            DO I=1,IM
+               if(EGRID1(I,J)<= 0. .or. EGRID2(I,J)<= 0. .or. EGRID3(I,J) <= 0.) then
+                  EGRID1(I,J) = SPVAL
+                  EGRID2(I,J) = SPVAL
+                  EGRID3(I,J) = SPVAL
+               end if
+            END DO
+         END DO
+         DO J=JSTA,JEND
+            DO I=1,IM
+               IF(EGRID2(I,J) == SPVAL .or. EGRID3(I,J) == SPVAL) cycle
+               if(EGRID3(I,J) < 400.*100. .and. &
+                  (EGRID2(I,J)-EGRID3(I,J)) > 300.*100) then
+                  ! Convert PBOT to height
+                  if(EGRID2(I,J) > PMID(I,J,LM)) then
+                     EGRID2(I,J) = 0.
+                  else
+                     do L = LM-1, 1, -1
+                        if(EGRID2(I,J) >= PMID(I,J,L)) then
+                           if(EGRID2(I,J)-PMID(I,J,L)<0.5) then
+                              EGRID2(I,J) = ZMID(I,J,L)
+                           else
+                              dp = (log(EGRID2(I,J)) - log(PMID(I,J,L)))/ &
+                                max(1.e-6,(LOG(PMID(I,J,L+1))-LOG(PMID(I,J,L))))
+                              EGRID2(I,J) = ZMID(I,J,L)+(ZMID(I,J,L+1)-ZMID(I,J,L))*dp
+                           end if
+                           exit
+                        end if
+                     end do
+                  end if
+                  ! Convert PTOP to height
+                  if(EGRID3(I,J) < PMID(I,J,1)) then
+                     EGRID3(I,J) = ZMID(I,J,1)
+                  else
+                     do L = 2, LM
+                        if(EGRID3(I,J) <= PMID(I,J,L)) then
+                           if(PMID(I,J,L)-EGRID3(I,J)<0.5) then
+                              EGRID3(I,J) = ZMID(I,J,L)
+                           else
+                              dp = (log(EGRID3(I,J)) - log(PMID(I,J,L)))/ &
+                                max(1.e-6,(LOG(PMID(I,J,L))-LOG(PMID(I,J,L-1))))
+                              EGRID3(I,J) = ZMID(I,J,L)+(ZMID(I,J,L)-ZMID(I,J,L-1))*dp
+                           end if
+                           exit
+                        end if
+                     end do
+                  end if
+               else
+                  EGRID1(I,J) = SPVAL
+                  EGRID2(I,J) = SPVAL
+                  EGRID3(I,J) = SPVAL
+               end if
+            END DO
+         END DO
+
+         IF(IGET(473) > 0) THEN
+!$omp parallel do private(i,j)
+            DO J=JSTA,JEND
+               DO I=1,IM
+                  GRID1(I,J) = EGRID1(I,J)
+               ENDDO
+            ENDDO
+            cfld=cfld+1
+            fld_info(cfld)%ifld=IAVBLFLD(IGET(473))
+!$omp parallel do private(i,j,jj)
+            do j=1,jend-jsta+1
+               jj = jsta+j-1
+               do i=1,im
+                  datapd(i,j,cfld) = GRID1(i,jj)
+               enddo
+            enddo
+         END IF
+
+         IF(IGET(474) > 0) THEN
+!$omp parallel do private(i,j)
+            DO J=JSTA,JEND
+               DO I=1,IM
+                  GRID1(I,J) = EGRID2(I,J)
+               ENDDO
+            ENDDO
+            cfld=cfld+1
+            fld_info(cfld)%ifld=IAVBLFLD(IGET(474))
+!$omp parallel do private(i,j,jj)
+            do j=1,jend-jsta+1
+               jj = jsta+j-1
+               do i=1,im
+                  datapd(i,j,cfld) = GRID1(i,jj)
+               enddo
+            enddo
+         END IF
+
+         IF(IGET(475) > 0) THEN
+!$omp parallel do private(i,j)
+            DO J=JSTA,JEND
+               DO I=1,IM
+                  GRID1(I,J) = EGRID3(I,J)
+               ENDDO
+            ENDDO
+            cfld=cfld+1
+            fld_info(cfld)%ifld=IAVBLFLD(IGET(475))
+!$omp parallel do private(i,j,jj)
+            do j=1,jend-jsta+1
+               jj = jsta+j-1
+               do i=1,im
+                  datapd(i,j,cfld) = GRID1(i,jj)
+               enddo
+            enddo
+         END IF
+      end if 
+
 !
 !     END OF ROUTINE.
 !
       RETURN
       END
+
+      subroutine cb_cover(cbcov)
+!     Calculate CB coverage by using fuzzy logic
+!     Evaluate membership of val in a fuzzy set fuzzy.
+!     Assume f is in x-log scale
+      use ctlblk_mod, only: SPVAL,JSTA,JEND,IM
+      implicit none
+      real, intent(inout) :: cbcov(IM,JSTA:JEND)
+
+      ! x - convective precipitation [1.0e6*kg/(m2s)]
+      ! y - cloud cover fraction, between 0 and 1
+      ! These are original values from Slingo (Table 1):
+      ! c = -.006 + 0.125*log(p)
+      ! x = 1.6 3.6 8.1 18.5 39.0 89.0 197.0 440.0 984.0 10000.0
+      ! y = 0.0 0.1 0.2  0.3  0.4  0.5   0.6   0.7   0.8     0.8
+      integer, parameter :: NP=10
+      real :: x(NP), y(NP)
+
+      integer :: i, j, k
+      real :: val, delta
+
+      x = (/ 1.6,3.6,8.1,18.5,39.0,89.0,197.0,440.0,984.0,10000.0 /)   
+      y = (/ 0.0,0.1,0.2, 0.3, 0.4, 0.5,  0.6,  0.7,  0.8,    0.8 /)
+
+      x = log(x)
+
+      do j = jsta, jend
+      do i = 1, IM
+         if(cbcov(i,j) == SPVAL) cycle
+         if(cbcov(i,j) <= 0.) then
+            cbcov(i,j) = 0.
+         else
+            val=log(1.0e6*cbcov(i,j))
+            if (val <= x(1)) then
+               cbcov(i,j) = 0.0
+            else if (val >= x(NP)) then
+               cbcov(i,j) = 0.0
+            else
+               do k = 2, NP
+                  if (val < x(k)) then
+                     delta = x(k) - x(k-1)
+                     if (delta <= 0.0) then
+                        cbcov(i,j) = y(k-1)
+                     else
+                        cbcov(i,j) = (y(k) * (val-x(k-1)) + &
+                            y(k-1) * (x(k)-val)) / delta
+                     end if
+                     exit
+                  end if
+               end do
+            end if      
+         end if
+      end do
+      end do
+      end subroutine cb_cover
 
       subroutine wrt_aero_diag(igetfld,nbin,data)
       use ctlblk_mod, only: jsta, jend, SPVAL, im, jm, grib,     &
