@@ -19,3 +19,7 @@ install/
 
 *.swp
 configure.upp*
+
+sorc/ncep_post.fd/*__genmod.f90
+sorc/ncep_post.fd/ncep_post
+parm/*.log.*
