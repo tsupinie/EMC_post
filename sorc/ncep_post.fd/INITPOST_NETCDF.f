@@ -62,7 +62,7 @@
               avgedir,avgecan,avgetrans,avgesnow,avgprec_cont,avgcprate_cont,rel_vort_max, &
               avisbeamswin,avisdiffswin,airbeamswin,airdiffswin,refdm10c_max,wspd10max, &
               alwoutc,alwtoac,aswoutc,aswtoac,alwinc,aswinc,avgpotevp,snoavg, &
-              ti 
+              ti,rainnc_bucket,snow_bucket,snownc,graup_bucket,graupelnc,qrmax,snowfall,sndepac
       use soil,  only: sldpth, sh2o, smc, stc
       use masks, only: lmv, lmh, htm, vtm, gdlat, gdlon, dx, dy, hbm2, sm, sice
       use physcons_post, only: grav => con_g, fv => con_fvirt, rgas => con_rd,                     &
@@ -178,7 +178,8 @@
       REAL, ALLOCATABLE :: ps2d(:,:),psx2d(:,:),psy2d(:,:)
       real, allocatable :: div3d(:,:,:)
       real(kind=4),allocatable :: vcrd(:,:)
-      real                     :: dum_const 
+      real                     :: dum_const
+      real, allocatable :: ice_bucket(:, :)
 
 !***********************************************************************
 !     START INIT HERE.
@@ -861,6 +862,8 @@
        if(debugprint)print*,'sample l cwm for FV3',l, &
           cwm(isa,jsa,l)
       end do 
+
+      qrmax = maxval(qqr, dim=3)
 ! max hourly updraft velocity
       VarName='upvvelmax'
       call read_netcdf_2d_scatter(me,ncid3d,1,im,jm,jsta,jsta_2l &
@@ -1453,6 +1456,7 @@
 !$omp parallel do private(i,j)
       do j=jsta,jend
         do i=1,im
+          ! ... This all cancels out ... maybe?
           if (prec(i,j) /= spval) prec(i,j)=prec(i,j)* (dtq2*0.001) &
               * 1000. / dtp
         enddo
@@ -1546,6 +1550,94 @@
         enddo
       enddo
      if(debugprint)print*,'sample ',VarName,' = ',si(isa,jsa)
+
+!-- SNOW_bucket  is "ACCUMULATED GRID SCALE SNOW OVER BUCKET_DT PERIODS OF TIME"
+
+      allocate(ice_bucket(im,jm))
+
+      VarName='toticeb_ave'
+      call read_netcdf_2d_scatter(me,ncid2d,1,im,jm,jsta,jsta_2l &
+       ,jend_2u,MPI_COMM_COMP,icnt,idsp,spval,VarName,ice_bucket)
+
+!      VarName='SNOW_BUCKET'
+      VarName='totsnwb_ave'
+      call read_netcdf_2d_scatter(me,ncid2d,1,im,jm,jsta,jsta_2l &
+       ,jend_2u,MPI_COMM_COMP,icnt,idsp,spval,VarName,snow_bucket)
+
+      snow_bucket = snow_bucket + ice_bucket
+
+     deallocate(ice_bucket)
+
+     snowfall = snow_bucket
+     sndepac = snow_bucket * 3600 / 100. ! [kg/m^2/s] = [(mm of liquid)/s] = [(cm of snow at 10:1 ratio)/s]
+
+!$omp parallel do private(i,j)
+      do j=jsta,jend
+        do i=1,im
+          ! Convert snow fall in [kg/m^2/s] to [m of liquid in a physics time step]
+          if (snow_bucket(i,j) /=spval)snow_bucket(i,j)=snow_bucket(i,j) &
+               * (dtq2*0.001)
+        enddo
+      enddo
+
+     if(debugprint)print*,'sample ',VarName,' = ',snow_bucket(isa,jsa)
+
+!     VarName='totsnw_ave'
+!     call read_netcdf_2d_scatter(me,ncid2d,1,im,jm,jsta,jsta_2l &
+!      ,jend_2u,MPI_COMM_COMP,icnt,idsp,spval,VarName,snownc)
+!!$omp parallel do private(i,j)
+!     do j=jsta,jend
+!       do i=1,im
+!         ! Convert snow fall in [kg/m^2/s] to [m of liquid in a physics time step]
+!         if (snownc(i,j) /=spval)snownc(i,j)=snownc(i,j) &
+!              * (dtq2*0.001)
+!       enddo
+!     enddo
+!    if(debugprint)print*,'sample ',VarName,' = ',snownc(isa,jsa)
+
+      ! XXX: Replace with actual instantaneous snow fall
+      snownc = snow_bucket
+
+!-- GRAUP_bucket  is "ACCUMULATED GRID SCALE GRAUPEL OVER BUCKET_DT PERIODS OF TIME"
+
+      VarName='totgrpb_ave'
+      call read_netcdf_2d_scatter(me,ncid2d,1,im,jm,jsta,jsta_2l &
+       ,jend_2u,MPI_COMM_COMP,icnt,idsp,spval,VarName,graup_bucket)
+!$omp parallel do private(i,j)
+      do j=jsta,jend
+        do i=1,im
+          ! Convert graupel fall in [kg/m^2/s] to [m of liquid in a physics time step]
+          if (graup_bucket(i,j) /=spval)graup_bucket(i,j)=graup_bucket(i,j) &
+               * (dtq2*0.001)
+        enddo
+      enddo
+
+     if(debugprint)print*,'sample ',VarName,' = ',graup_bucket(isa,jsa)
+
+!     VarName='totgrp_ave'
+!     call read_netcdf_2d_scatter(me,ncid2d,1,im,jm,jsta,jsta_2l &
+!      ,jend_2u,MPI_COMM_COMP,icnt,idsp,spval,VarName,graupelnc)
+!!$omp parallel do private(i,j)
+!     do j=jsta,jend
+!       do i=1,im
+!         ! Convert graupel fall in [kg/m^2/s] to [m of liquid in a physics time step]
+!         if (graupelnc(i,j) /=spval)graupelnc(i,j)=graupelnc(i,j) &
+!              * (dtq2*0.001)
+!       enddo
+!     enddo
+!    if(debugprint)print*,'sample ',VarName,' = ',graupelnc(isa,jsa)
+
+      ! XXX: Replace with actual instantaneous graupel fall
+      graupelnc = graup_bucket
+
+      rainnc_bucket = avgprec
+
+     print*, 'TAS: prateb_ave', maxval(avgprec)
+     print*, 'TAS: tprcp', maxval(prec)
+     print*, 'TAS: totgrpb_ave', maxval(graup_bucket)
+     print*, 'TAS: totsnwb_ave', maxval(snow_bucket)
+
+    
 
 ! 2m T using nemsio
       VarName='tmp2m'
@@ -1737,6 +1829,15 @@
         enddo
       enddo
 
+      ! XXX: TAS hack for Thompson MP. Fix this for realz!
+      do j=jsta,jend
+        do i=1,im
+          if (avgprec(i,j) /= spval) sr(i,j) = min(1., (graup_bucket(i,j) + snow_bucket(i,j)) / (avgprec(i,j) + 1e-12))
+          sr(i, j) = min(1., (graup_bucket(i,j) + snow_bucket(i,j)) / (avgprec(i,j) + 1e-12))
+        enddo
+      enddo
+      print*, 'TAS: sr', maxval(sr)
+ 
 ! sea ice skin temperature
       VarName='tisfc'
       call read_netcdf_2d_scatter(me,ncid2d,1,im,jm,jsta,jsta_2l &

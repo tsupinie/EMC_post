@@ -138,7 +138,7 @@
 !      real,   dimension(im,jm,nalg) :: sleet, rain, freezr, snow
 
 !GSD
-      REAL totprcp, snowratio,t2,rainl
+      REAL totprcp, snowratio,t2,rainl, grp,snw, totprcp_max, rainl_max, grplnc_odt_max, snownc_odt_max
 
 !
       integer I,J,IWX,ITMAXMIN,IFINCR,ISVALUE,II,JJ,                    &
@@ -512,51 +512,6 @@
                enddo
              enddo
            endif
-      ENDIF
-
-!     ACCUMULATED DEPTH OF SNOWFALL
-      IF (IGET(725).GT.0) THEN
-         ID(1:25) = 0
-         ITPREC     = NINT(TPREC)
-!mp
-         IF(ITPREC .NE. 0) THEN
-            IFINCR = MOD(IFHR,ITPREC)
-            IF(IFMIN .GE. 1)IFINCR = MOD(IFHR*60+IFMIN,ITPREC*60)
-         ELSE 
-           IFINCR = 0
-         ENDIF
-!mp
-         ID(18)     = 0
-         ID(19)     = IFHR
-         IF(IFMIN .GE. 1)ID(19)=IFHR*60+IFMIN
-         ID(20)     = 4
-         IF (IFINCR.EQ.0) THEN
-           ID(18) = IFHR-ITPREC
-         ELSE 
-           ID(18) = IFHR-IFINCR
-           IF(IFMIN .GE. 1)ID(18)=IFHR*60+IFMIN-IFINCR
-         ENDIF
-         IF (ID(18).LT.0) ID(18) = 0
-         if(grib=='grib1') then
-            DO J=JSTA,JEND
-              DO I=1,IM
-                GRID1(I,J) = SNDEPAC(I,J)
-              ENDDO
-            ENDDO
-            CALL GRIBIT(IGET(725),LVLS(1,IGET(725)), GRID1,IM,JM)
-         elseif(grib=='grib2') then
-            cfld=cfld+1
-            fld_info(cfld)%ifld=IAVBLFLD(IGET(725))
-            fld_info(cfld)%ntrange=1
-            fld_info(cfld)%tinvstat=IFHR-ID(18)
-!$omp parallel do private(i,j,jj)
-            do j=1,jend-jsta+1
-              jj = jsta+j-1
-              do i=1,im
-                datapd(i,j,cfld) =  SNDEPAC(i,jj)
-              enddo
-            enddo
-         endif
       ENDIF
 
 !
@@ -5111,32 +5066,41 @@
              ENDDO
            ENDDO
 
+           rainl_max = 0.
+
            DO J=JSTA,JEND
              DO I=1,IM
 !-- TOTPRCP is total 1-hour accumulated precipitation in  [m]
-               totprcp = (RAINC_BUCKET(I,J) + RAINNC_BUCKET(I,J))*1.e-3
+ 
+! TAS: get the units to work for FV3-SAR
+!              totprcp = (RAINC_BUCKET(I,J) + RAINNC_BUCKET(I,J))*1.e-3
+               totprcp = (RAINC_BUCKET(I,J) + RAINNC_BUCKET(I,J)) / dtq2 * 3600
                snowratio = 0.0
-               if(graup_bucket(i,j)*1.e-3 > totprcp)then
-                 print *,'WARNING - Graupel is higher that total precip at point',i,j
-                 print *,'totprcp,graup_bucket(i,j),snow_bucket(i,j),rainnc_bucket',&
-                          totprcp,graup_bucket(i,j),snow_bucket(i,j),rainnc_bucket(i,j)
+               grp = graup_bucket(i,j) / dtq2 * 3600
+               snw = snow_bucket(i,j) / dtq2 * 3600
+
+               if(grp > totprcp)then
+       print *,'WARNING - Graupel is higher that total precip at point',i,j
+                 print *,'totprcp,grp,snw,rainnc_bucket',&
+                          totprcp,grp,snw,rainnc_bucket(i,j) / dtq2 * 3600
                endif
 
 !  ---------------------------------------------------------------
 !  Minimum 1h precipitation to even consider p-type specification
 !      (0.0001 mm in 1h, very light precipitation)
 !  ---------------------------------------------------------------
-               if (totprcp-graup_bucket(i,j)*1.e-3 > 0.0000001)       &
+               if (totprcp-grp > 0.0000001)       &
 !          snowratio = snow_bucket(i,j)*1.e-3/totprcp            ! orig
 !14aug15 - change from Stan and Trevor
 !  ---------------------------------------------------------------
 !      Snow-to-total ratio to be used below
 !  ---------------------------------------------------------------
-               snowratio = snow_bucket(i,j)*1.e-3 / (totprcp-graup_bucket(i,j)*1.e-3)
+               snowratio = snw / (totprcp-grp)
 
 !              snowratio = SR(i,j)
 !-- 2-m temperature
                t2 = TSHLTR(I,J)*(PSHLTR(I,J)*1.E-5)**CAPA
+
 !  ---------------------------------------------------------------
 !--snow (or rain if T2m > 3 C)
 !  ---------------------------------------------------------------
@@ -5357,6 +5321,63 @@
 
         ENDIF
 !     
+!       print*, 'TAS: domr', sum(domr)
+!       print*, 'TAS: domzr', sum(domzr)
+!       print*, 'TAS: domip', sum(domip)
+!       print*, 'TAS: doms', sum(doms)
+
+!$omp parallel do private(i,j)
+      DO J=JSTA,JEND
+        DO I=1,IM
+          if (DOMS(I,J) == 0) sndepac(I,J) = 0.
+        ENDDO
+      ENDDO
+
+!     ACCUMULATED DEPTH OF SNOWFALL
+      IF (IGET(725).GT.0) THEN
+         ID(1:25) = 0
+         ITPREC     = NINT(TPREC)
+!mp
+         IF(ITPREC .NE. 0) THEN
+            IFINCR = MOD(IFHR,ITPREC)
+            IF(IFMIN .GE. 1)IFINCR = MOD(IFHR*60+IFMIN,ITPREC*60)
+         ELSE 
+           IFINCR = 0
+         ENDIF
+!mp
+         ID(18)     = 0
+         ID(19)     = IFHR
+         IF(IFMIN .GE. 1)ID(19)=IFHR*60+IFMIN
+         ID(20)     = 4
+         IF (IFINCR.EQ.0) THEN
+           ID(18) = IFHR-ITPREC
+         ELSE 
+           ID(18) = IFHR-IFINCR
+           IF(IFMIN .GE. 1)ID(18)=IFHR*60+IFMIN-IFINCR
+         ENDIF
+         IF (ID(18).LT.0) ID(18) = 0
+         if(grib=='grib1') then
+            DO J=JSTA,JEND
+              DO I=1,IM
+                GRID1(I,J) = SNDEPAC(I,J)
+              ENDDO
+            ENDDO
+            CALL GRIBIT(IGET(725),LVLS(1,IGET(725)), GRID1,IM,JM)
+         elseif(grib=='grib2') then
+            cfld=cfld+1
+            fld_info(cfld)%ifld=IAVBLFLD(IGET(725))
+            fld_info(cfld)%ntrange=1
+            fld_info(cfld)%tinvstat=IFHR-ID(18)
+!$omp parallel do private(i,j,jj)
+            do j=1,jend-jsta+1
+              jj = jsta+j-1
+              do i=1,im
+                datapd(i,j,cfld) =  SNDEPAC(i,jj)
+              enddo
+            enddo
+         endif
+      ENDIF
+
         if (allocated(psfc))  deallocate(psfc)
         if (allocated(domr))  deallocate(domr)
         if (allocated(doms))  deallocate(doms)
