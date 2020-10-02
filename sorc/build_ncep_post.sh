@@ -13,7 +13,7 @@
 #####################################################################################################
 
 #List of valid machines:
-validmachines=(theia jet wcoss_dell_p3 wcoss cray-intel hera orion odin stampede)
+validmachines=(theia jet wcoss_dell_p3 wcoss cray-intel hera orion odin stampede frontera)
 
 function usage {
    echo "Usage:"
@@ -29,12 +29,15 @@ if [ "$#" -eq 0 ]; then
    set -x
    mac=$(hostname | cut -c1-1)
    mac2=$(hostname | cut -c1-2)
+   mac2d=$(hostname | cut -f 2 -d . | cut -c1-1)
    if [ $mac2 = tf ] ; then                         # For Theia
       machine=theia
    elif [ $mac = f  ] ; then                        # For Jet 
       machine=jet
-   elif [ $mac2 = lo ] ; then
+   elif [ $mac2 = lo -a $mac2d = s ] ; then
       machine=stampede
+   elif [ $mac2 = lo -a $mac2d = f ] ; then
+      machine=frontera
    elif [ $mac = v -o $mac = m  ] ; then            # For Dell
       machine=wcoss_dell_p3
    elif [ $mac = t -o $mac = e -o $mac = g ] ; then # For WCOSS
@@ -101,6 +104,9 @@ odin)                                  # For Odin at NSSL
  . /etc/profile.d/modules.sh
  ;;
 stampede)
+ module purge
+ ;;
+frontera)
  module purge
  ;;
 *)
